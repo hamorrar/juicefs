@@ -76,7 +76,7 @@ require (
 	golang.org/x/crypto v0.19.0
 	golang.org/x/net v0.21.0
 	golang.org/x/oauth2 v0.7.0
-	golang.org/x/sync v0.2.0
+	golang.org/x/sync v0.3.0
 	golang.org/x/sys v0.17.0
 	golang.org/x/term v0.17.0
 	golang.org/x/text v0.14.0
@@ -84,14 +84,26 @@ require (
 	google.golang.org/protobuf v1.30.0
 	gopkg.in/kothar/go-backblaze.v0 v0.0.0-20210124194846-35409b867216
 	pgregory.net/rapid v0.5.3
+	storj.io/uplink v1.12.2
 	xorm.io/xorm v1.0.7
 )
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
+	github.com/calebcase/tmpfile v1.0.3 // indirect
+	github.com/flynn/noise v1.0.0 // indirect
 	github.com/go-resty/resty/v2 v2.11.0 // indirect
+	github.com/jtolio/eventkit v0.0.0-20221004135224-074cf276595b // indirect
+	github.com/jtolio/noiseconn v0.0.0-20230111204749-d7ec1a08b0b8 // indirect
+	github.com/spacemonkeygo/monkit/v3 v3.0.22 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.52.0 // indirect
+	github.com/zeebo/blake3 v0.2.3 // indirect
+	github.com/zeebo/errs v1.3.0 // indirect
+	storj.io/common v0.0.0-20231101115145-09481ec98b57 // indirect
+	storj.io/drpc v0.0.33 // indirect
+	storj.io/infectious v0.0.1 // indirect
+	storj.io/picobuf v0.0.2-0.20230906122608-c4ba17033c6c // indirect
 )
 
 require (

@@ -907,6 +907,19 @@ func TestSharding(t *testing.T) {
 	testStorage(t, s)
 }
 
+func TestStorj(t *testing.T) {
+	if os.Getenv("STORJ_ACCESS_GRANT") == "" {
+		t.SkipNow()
+	}
+
+	s, err := newStorj(os.Getenv("STORJ_BUCKET"), os.Getenv("STORJ_ACCESS_GRANT"), "", "")
+	if err != nil {
+		t.Fatalf("storj create: %s", err)
+	}
+
+	testStorage(t, s)
+}
+
 func TestSQLite(t *testing.T) {
 	s, err := newSQLStore("sqlite3", "/tmp/teststore.db", "", "")
 	if err != nil {
