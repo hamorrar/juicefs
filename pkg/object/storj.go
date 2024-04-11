@@ -33,6 +33,8 @@ https://github.com/storj/uplink/blob/main/examples/walkthrough/main.go
 this entire repo has the API we can use for uplink
 
 I'm just making a guess what is needed in StorjClient so if you need to add some do it
+
+Use object_storage_test TestStorj function
 */
 type StorjClient struct {
 	bucket  string
