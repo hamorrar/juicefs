@@ -35,6 +35,11 @@ this entire repo has the API we can use for uplink
 I'm just making a guess what is needed in StorjClient so if you need to add some do it
 
 Use object_storage_test TestStorj function
+
+1) work towards running test function (setting up IDE)
+2) work on put
+3) work on delete
+4) .... down the TestStorj function
 */
 type StorjClient struct {
 	bucket  string
