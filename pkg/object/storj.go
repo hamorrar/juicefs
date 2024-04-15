@@ -20,9 +20,11 @@
 package object
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+
 	"storj.io/uplink"
 )
 
@@ -81,7 +83,39 @@ func (s *StorjClient) Get(key string, off, limit int64, getters ...AttrGetter) (
 func (s *StorjClient) Put(key string, in io.Reader, getters ...AttrGetter) error {
 	// TODO implement me
 	// TODO: Hilal Put data read from a reader to an object specified by key.
-	panic("implement me")
+	// panic("implement me")
+
+	upload, err := s.project.UploadObject(ctx, s.bucket, key, &uplink.UploadOptions{})
+	if err != nil {
+		return fmt.Errorf("could not initiate upload: %v", err)
+	}
+
+	// Copy the data to the upload.
+	var body io.ReadSeeker
+	if b, ok := in.(io.ReadSeeker); ok {
+		body = b
+	} else {
+		data, err := io.ReadAll(in)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(data)
+	}
+	_, err = io.Copy(upload, body)
+
+	if err != nil {
+		_ = upload.Abort()
+		return fmt.Errorf("could not upload data: %v", err)
+	}
+
+	// Commit the uploaded object.
+	err = upload.Commit()
+	if err != nil {
+		return fmt.Errorf("could not commit uploaded object: %v", err)
+	}
+
+	return nil
+
 }
 
 func (s *StorjClient) Copy(dst, src string) error {
@@ -105,6 +139,7 @@ func (s *StorjClient) List(prefix, marker, delimiter string, limit int64, follow
 	// TODO implement me
 	// TODO: Hilal List returns a list of objects.
 	panic("implement me")
+
 }
 
 func (s *StorjClient) ListAll(prefix, marker string, followLink bool) (<-chan Object, error) {
