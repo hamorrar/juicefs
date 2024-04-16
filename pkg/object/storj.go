@@ -138,7 +138,19 @@ func (s *StorjClient) Head(key string) (Object, error) {
 func (s *StorjClient) List(prefix, marker, delimiter string, limit int64, followLink bool) ([]Object, error) {
 	// TODO implement me
 	// TODO: Hilal List returns a list of objects.
-	panic("implement me")
+	// panic("implement me")
+
+	objs := s.project.ListObjects(ctx, s.bucket, &uplink.ListObjectsOptions{Prefix: prefix})
+
+	l := make([]Object, 0)
+
+	for objs.Next() {
+		// &obj{prefix, 0, time.Now(), true, ""}
+		thing := objs.Item()
+		l = append(l, &obj{key: thing.Key, isDir: thing.IsPrefix, sc: "", mtime: thing.System.Created, size: thing.System.ContentLength})
+	}
+
+	return l, nil
 
 }
 
