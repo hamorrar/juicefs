@@ -126,7 +126,11 @@ func (s *StorjClient) Copy(dst, src string) error {
 func (s *StorjClient) Delete(key string, getters ...AttrGetter) error {
 	// TODO implement me
 	// TODO: Hilal Delete a object.
-	panic("implement me")
+	// panic("implement me")
+
+	_, err := s.project.DeleteObject(ctx, s.bucket, key)
+
+	return err
 }
 
 func (s *StorjClient) Head(key string) (Object, error) {
