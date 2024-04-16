@@ -20,12 +20,18 @@
 package object
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"github.com/sethvargo/go-retry"
 	"io"
-
+	"math"
+	"sort"
+	"storj.io/common/rpc/rpcpool"
 	"storj.io/uplink"
+	"storj.io/uplink/private/transport"
+	"strings"
+	"time"
 )
 
 /*
@@ -43,26 +49,27 @@ Use object_storage_test TestStorj function
 3) work on delete
 4) .... down the TestStorj function
 */
+
+const maxPartCount int = math.MaxInt32 - 1 // Storj source code shows max part count is this
+const minPartSize int = 0                  // No notes on this
+
 type StorjClient struct {
 	bucket  string
 	project *uplink.Project
 }
 
 func (s *StorjClient) String() string {
-	//TODO implement me
-	panic("implement me")
+	return fmt.Sprintf("sj://%s/", s.bucket)
 }
 
 func (s *StorjClient) Limits() Limits {
-	//return Limits{
-	//	IsSupportMultipartUpload:	true,
-	//	IsSupportUploadPartCopy:	,
-	//	MinPartSize:				,
-	//	MaxPartSize:				,
-	//	MaxPartCount:				,
-	//}
-	//TODO implement me
-	panic("implement me")
+	return Limits{
+		IsSupportMultipartUpload: true,
+		IsSupportUploadPartCopy:  false,
+		MinPartSize:              minPartSize,
+		MaxPartSize:              64000000, // 64MB per https://forum.storj.io/t/uplink-library-upload-process-and-recommended-file-fragmentation-size/10839/8
+		MaxPartCount:             maxPartCount,
+	}
 }
 
 func (s *StorjClient) Create() error {
@@ -75,72 +82,74 @@ func (s *StorjClient) Create() error {
 }
 
 func (s *StorjClient) Get(key string, off, limit int64, getters ...AttrGetter) (io.ReadCloser, error) {
-	// TODO implement me
-	// TODO: Hilal Get the data for the given object specified by key.
-	// panic("implement me")
-
 	// Initiate a download of the same object again
 	download, err := s.project.DownloadObject(ctx, s.bucket, key, &uplink.DownloadOptions{Length: limit, Offset: off})
 	if err != nil {
 		return nil, fmt.Errorf("could not open object: %v", err)
 	}
-	// defer download.Close()
 
-	// Read everything from the download stream
-	receivedContents := io.ReadCloser(download)
-
-	return receivedContents, nil
+	return download, nil
 
 }
 
 func (s *StorjClient) Put(key string, in io.Reader, getters ...AttrGetter) error {
-	// TODO implement me
-	// TODO: Hilal Put data read from a reader to an object specified by key.
-	// panic("implement me")
+	var upload *uplink.Upload
 
-	upload, err := s.project.UploadObject(ctx, s.bucket, key, &uplink.UploadOptions{})
+	backoff := retry.NewExponential(1 * time.Second)
+	backoff = retry.WithMaxRetries(3, backoff)
+
+	err := retry.Do(ctx, backoff, func(ctx context.Context) error {
+		var innerErr error
+		upload, innerErr = s.project.UploadObject(ctx, s.bucket, key, &uplink.UploadOptions{})
+
+		// If there are too many requests, try again
+		if innerErr != nil && errors.Is(innerErr, uplink.ErrTooManyRequests) {
+			return retry.RetryableError(innerErr)
+		}
+
+		return innerErr
+	})
+
 	if err != nil {
 		return fmt.Errorf("could not initiate upload: %v", err)
 	}
 
-	// Copy the data to the upload.
-	var body io.ReadSeeker
-	if b, ok := in.(io.ReadSeeker); ok {
-		body = b
-	} else {
-		data, err := io.ReadAll(in)
-		if err != nil {
-			return err
-		}
-		body = bytes.NewReader(data)
-	}
-	_, err = io.Copy(upload, body)
+	_, err = io.Copy(upload, in)
 
 	if err != nil {
 		_ = upload.Abort()
 		return fmt.Errorf("could not upload data: %v", err)
 	}
 
-	// Commit the uploaded object.
-	err = upload.Commit()
+	err = retry.Do(ctx, backoff, func(ctx context.Context) error {
+		innerErr := upload.Commit()
+
+		// If there are too many requests, try again
+		if innerErr != nil && errors.Is(innerErr, uplink.ErrTooManyRequests) {
+			return retry.RetryableError(innerErr)
+			// Sometimes it seems to complete a request but doesn't tell us until we try to commit again
+			// It is weird, but we will just return no error if this happens
+		} else if innerErr != nil && strings.HasSuffix(innerErr.Error(), "already committed") {
+			return nil
+		}
+
+		return innerErr
+	})
+
 	if err != nil {
 		return fmt.Errorf("could not commit uploaded object: %v", err)
 	}
 
 	return nil
-
 }
 
 func (s *StorjClient) Copy(dst, src string) error {
 	// TODO implement me
+	// TODO: Hilal Copy an object from src to dst.
 	panic("implement me")
 }
 
 func (s *StorjClient) Delete(key string, getters ...AttrGetter) error {
-	// TODO implement me
-	// TODO: Hilal Delete a object.
-	// panic("implement me")
-
 	_, err := s.project.DeleteObject(ctx, s.bucket, key)
 
 	return err
@@ -152,20 +161,69 @@ func (s *StorjClient) Head(key string) (Object, error) {
 	panic("implement me")
 }
 
-func (s *StorjClient) List(prefix, marker, delimiter string, limit int64, followLink bool) ([]Object, error) {
-	// TODO implement me
-	// TODO: Hilal List returns a list of objects.
-	// panic("implement me")
+// Storj prefix only will take a folder path so we need to split it into the folder path and if it has a file path
+type PrefixSpecifics struct {
+	FullPrefix    string
+	Folder        string
+	HasFilePrefix bool
+}
 
-	objs := s.project.ListObjects(ctx, s.bucket, &uplink.ListObjectsOptions{Prefix: prefix})
+func setPrefixSpecifics(prefixSplit *PrefixSpecifics, prefix string) {
+	prefixSplit.FullPrefix = prefix
+
+	if strings.HasSuffix(prefix, "/") {
+		prefixSplit.Folder = prefix
+		prefixSplit.HasFilePrefix = false
+		return
+	}
+
+	lastIndex := strings.LastIndex(prefix, "/")
+
+	if lastIndex == -1 {
+		prefixSplit.Folder = ""
+		prefixSplit.HasFilePrefix = true
+		return
+	}
+
+	prefixSplit.Folder = prefix[:lastIndex+1]
+	prefixSplit.HasFilePrefix = true
+}
+
+func (s *StorjClient) List(prefix, marker, delimiter string, limit int64, followLink bool) ([]Object, error) {
+	if delimiter != "/" {
+		// Right now we only support the "/" delimiter
+		return nil, notSupported
+	}
+
+	var prefixSpecifics PrefixSpecifics
+	setPrefixSpecifics(&prefixSpecifics, prefix)
+
+	// Storj prefix only accepts a folder path. If we want to include the prefix to filter down the objects themselves,
+	// we need to do it in the below for loop
+	objs := s.project.ListObjects(ctx, s.bucket, &uplink.ListObjectsOptions{Prefix: prefixSpecifics.Folder})
 
 	l := make([]Object, 0)
 
 	for objs.Next() {
-		// &obj{prefix, 0, time.Now(), true, ""}
 		thing := objs.Item()
-		l = append(l, &obj{key: thing.Key, isDir: thing.IsPrefix, sc: "", mtime: thing.System.Created, size: thing.System.ContentLength})
+		// If it has a file prefix but the item doesn't have that prefix, skip it
+		if prefixSpecifics.HasFilePrefix && !strings.HasPrefix(thing.Key, prefixSpecifics.FullPrefix) {
+			continue
+		}
+
+		l = append(l, &obj{
+			key:   thing.Key,
+			isDir: thing.IsPrefix,
+			sc:    "",
+			mtime: thing.System.Created,
+			size:  thing.System.ContentLength,
+		})
 	}
+
+	// Expected alphabetical order
+	sort.Slice(l, func(i, j int) bool {
+		return l[i].Key() < l[j].Key()
+	})
 
 	return l, nil
 
@@ -180,50 +238,96 @@ func (s *StorjClient) ListAll(prefix, marker string, followLink bool) (<-chan Ob
 }
 
 func (s *StorjClient) CreateMultipartUpload(key string) (*MultipartUpload, error) {
-	//TODO implement me
-	panic("implement me")
+	// We aren't supporting setting an expiration or custom metadata so pass in nil upload options
+	uploadInfo, err := s.project.BeginUpload(ctx, s.bucket, key, nil)
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to create multipart upload: %v", err)
+	}
+
+	return &MultipartUpload{MinPartSize: minPartSize, MaxCount: maxPartCount, UploadID: uploadInfo.UploadID}, nil
 }
 
 func (s *StorjClient) UploadPart(key string, uploadID string, num int, body []byte) (*Part, error) {
-	//TODO implement me
-	panic("implement me")
+	partUpload, err := s.project.UploadPart(ctx, s.bucket, key, uploadID, uint32(num))
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid upload part: %v", err)
+	}
+
+	numBytes, err := partUpload.Write(body)
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid write to part: %v", err)
+	}
+
+	err = partUpload.Commit()
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid commit of part: %v", err)
+	}
+
+	return &Part{Num: num, Size: numBytes, ETag: string(partUpload.Info().ETag[:])}, nil
 }
 
-func (s *StorjClient) UploadPartCopy(key string, uploadID string, num int, srcKey string, off, size int64) (*Part, error) {
-	//TODO implement me
-	panic("implement me")
+func (s *StorjClient) UploadPartCopy(_ string, _ string, _ int, _ string, _, _ int64) (*Part, error) {
+	return nil, notSupported
 }
 
 func (s *StorjClient) AbortUpload(key string, uploadID string) {
-	//TODO implement me
-	panic("implement me")
+	_ = s.project.AbortUpload(ctx, s.bucket, key, uploadID)
 }
 
 func (s *StorjClient) CompleteUpload(key string, uploadID string, parts []*Part) error {
-	//TODO implement me
-	panic("implement me")
+	// Just commit the upload itself since the parts were already committed
+	_, err := s.project.CommitUpload(ctx, s.bucket, key, uploadID, nil)
+
+	if err != nil {
+		return fmt.Errorf("issue commiting multipart upload: %v", err)
+	}
+
+	return nil
 }
 
 func (s *StorjClient) ListUploads(marker string) ([]*PendingPart, string, error) {
-	//TODO implement me
-	panic("implement me")
+	parts := make([]*PendingPart, 0)
+
+	iterator := s.project.ListUploads(ctx, s.bucket, nil)
+
+	for iterator.Next() {
+		item := iterator.Item()
+		parts = append(parts, &PendingPart{Key: item.Key, UploadID: item.UploadID, Created: item.System.Created})
+	}
+
+	return parts, "", nil
 }
 
 func newStorj(bucket, accessGrant, _, _ string) (ObjectStorage, error) {
-	// TODO
 	// Parse access grant, which contains necessary credentials and permissions.
 	access, err := uplink.ParseAccess(accessGrant)
 	if err != nil {
 		return nil, fmt.Errorf("invalid access grant: %v", err)
 	}
 
-	ctx := context.Background()
-	project, err := uplink.OpenProject(ctx, access)
+	uplinkConfig := uplink.Config{}
+
+	// TODO: Hannah how do we allow users to configure the capacity?
+	pool := rpcpool.New(rpcpool.Options{
+		Capacity:       100,
+		KeyCapacity:    5,
+		IdleExpiration: 2 * time.Minute,
+	})
+
+	err = transport.SetConnectionPool(ctx, &uplinkConfig, pool)
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid access grant: %v", err)
+	}
+
+	project, err := uplinkConfig.OpenProject(ctx, access)
 	if err != nil {
 		return nil, fmt.Errorf("invalid project: %v", err)
 	}
-
-	// TODO anything else?
 
 	return &StorjClient{bucket: bucket, project: project}, nil
 }

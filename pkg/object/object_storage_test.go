@@ -172,7 +172,7 @@ func testStorage(t *testing.T, s ObjectStorage) {
 	if d, e := get(s, "test", 6, 2); e != nil || d != "" {
 		t.Logf("out-of-range get: '', but got %v, error: %s", len(d), e)
 	}
-	// TODO: FIX LIST ALL
+	// TODO: Hannah FIX LIST ALL
 	// switch s.(*withPrefix).os.(type) {
 	// case FileSystem:
 	// 	objs, err2 := listAll(s, "", "", 2, true)
