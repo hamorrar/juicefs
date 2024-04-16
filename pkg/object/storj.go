@@ -77,7 +77,20 @@ func (s *StorjClient) Create() error {
 func (s *StorjClient) Get(key string, off, limit int64, getters ...AttrGetter) (io.ReadCloser, error) {
 	// TODO implement me
 	// TODO: Hilal Get the data for the given object specified by key.
-	panic("implement me")
+	// panic("implement me")
+
+	// Initiate a download of the same object again
+	download, err := s.project.DownloadObject(ctx, s.bucket, key, &uplink.DownloadOptions{Length: limit, Offset: off})
+	if err != nil {
+		return nil, fmt.Errorf("could not open object: %v", err)
+	}
+	// defer download.Close()
+
+	// Read everything from the download stream
+	receivedContents := io.ReadCloser(download)
+
+	return receivedContents, nil
+
 }
 
 func (s *StorjClient) Put(key string, in io.Reader, getters ...AttrGetter) error {
@@ -161,7 +174,9 @@ func (s *StorjClient) List(prefix, marker, delimiter string, limit int64, follow
 func (s *StorjClient) ListAll(prefix, marker string, followLink bool) (<-chan Object, error) {
 	// TODO implement me
 	// TODO: Hilal returns all the objects as an channel.
-	panic("implement me")
+	// panic("implement me")
+	// return nil, errors.New("not supported")
+	return nil, notSupported
 }
 
 func (s *StorjClient) CreateMultipartUpload(key string) (*MultipartUpload, error) {
