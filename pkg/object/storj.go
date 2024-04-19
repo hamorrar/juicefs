@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -74,9 +75,10 @@ func (s *StorjClient) Limits() Limits {
 }
 
 func (s *StorjClient) Create() error {
+	_, unrealErr := s.project.DeleteBucketWithObjects(ctx, s.bucket) // TODO: Hannah delete this
 	_, err := s.project.EnsureBucket(ctx, s.bucket)
 	if err != nil {
-		return fmt.Errorf("could not create bucket: %v", err)
+		return fmt.Errorf("could not create bucket: %v %v", err, unrealErr)
 	}
 
 	return nil
@@ -157,13 +159,22 @@ func (s *StorjClient) Delete(key string, getters ...AttrGetter) error {
 }
 
 func (s *StorjClient) Head(key string) (Object, error) {
-	// TODO implement me
-	// TODO: Hilal Head returns some information about the object or an error if not found
-	download, err := s.project.DownloadObject(ctx, s.bucket, key, &uplink.DownloadOptions{Length: -1, Offset: -1})
-	objinfo := download.Info()
-	// return &obj{key: key, size: }, err
-	// panic("implement me")
-	return &obj{key: key, size: 0, mtime: objinfo.System.Created, isDir: objinfo.IsPrefix, sc: ""}, err
+	objinfo, err := s.project.StatObject(ctx, s.bucket, key)
+
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "uplink: object not found") {
+			return nil, os.ErrNotExist
+		}
+		return nil, fmt.Errorf("issue on head: %v", err)
+	}
+
+	return &obj{
+		key:   key,
+		size:  objinfo.System.ContentLength,
+		mtime: objinfo.System.Created,
+		isDir: objinfo.IsPrefix,
+		sc:    "",
+	}, err
 }
 
 // Storj prefix only will take a folder path so we need to split it into the folder path and if it has a file path
