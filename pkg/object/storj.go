@@ -36,22 +36,6 @@ import (
 	"storj.io/uplink/private/transport"
 )
 
-/*
-NOTES FOR HILAL
-TODO: Hilal delete this but for now here is example code
-https://github.com/storj/uplink/blob/main/examples/walkthrough/main.go
-this entire repo has the API we can use for uplink
-
-I'm just making a guess what is needed in StorjClient so if you need to add some do it
-
-Use object_storage_test TestStorj function
-
-1) work towards running test function (setting up IDE)
-2) work on put
-3) work on delete
-4) .... down the TestStorj function
-*/
-
 const maxPartCount int = math.MaxInt32 - 1 // Storj source code shows max part count is this
 const minPartSize int = 0                  // No notes on this
 
@@ -147,9 +131,13 @@ func (s *StorjClient) Put(key string, in io.Reader, getters ...AttrGetter) error
 }
 
 func (s *StorjClient) Copy(dst, src string) error {
-	// TODO implement me
-	// TODO: Hilal Copy an object from src to dst.
-	panic("implement me")
+	_, err := s.project.CopyObject(ctx, s.bucket, src, s.bucket, dst, nil)
+
+	if err != nil {
+		return fmt.Errorf("issue copying: %v", err)
+	}
+
+	return nil
 }
 
 func (s *StorjClient) Delete(key string, getters ...AttrGetter) error {
@@ -177,7 +165,7 @@ func (s *StorjClient) Head(key string) (Object, error) {
 	}, err
 }
 
-// Storj prefix only will take a folder path so we need to split it into the folder path and if it has a file path
+// PrefixSpecifics Storj prefix only will take a folder path so we need to split it into the folder path and if it has a file path
 type PrefixSpecifics struct {
 	FullPrefix    string
 	Folder        string
@@ -214,9 +202,14 @@ func (s *StorjClient) List(prefix, marker, delimiter string, limit int64, follow
 	var prefixSpecifics PrefixSpecifics
 	setPrefixSpecifics(&prefixSpecifics, prefix)
 
-	// Storj prefix only accepts a folder path. If we want to include the prefix to filter down the objects themselves,
-	// we need to do it in the below for loop
-	objs := s.project.ListObjects(ctx, s.bucket, &uplink.ListObjectsOptions{Prefix: prefixSpecifics.Folder})
+	listOptions := uplink.ListObjectsOptions{
+		// Storj prefix only accepts a folder path. If we want to include the prefix to filter down the objects
+		// themselves, we need to do it in the below for loop
+		Prefix: prefixSpecifics.Folder,
+		// Include system details like size
+		System: true,
+	}
+	objs := s.project.ListObjects(ctx, s.bucket, &listOptions)
 
 	l := make([]Object, 0)
 
@@ -246,10 +239,6 @@ func (s *StorjClient) List(prefix, marker, delimiter string, limit int64, follow
 }
 
 func (s *StorjClient) ListAll(prefix, marker string, followLink bool) (<-chan Object, error) {
-	// TODO implement me
-	// TODO: Hilal returns all the objects as an channel.
-	// panic("implement me")
-	// return nil, errors.New("not supported")
 	return nil, notSupported
 }
 
