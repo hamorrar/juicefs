@@ -23,15 +23,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/sethvargo/go-retry"
 	"io"
 	"math"
 	"sort"
+	"strings"
+	"time"
+
+	"github.com/sethvargo/go-retry"
 	"storj.io/common/rpc/rpcpool"
 	"storj.io/uplink"
 	"storj.io/uplink/private/transport"
-	"strings"
-	"time"
 )
 
 /*
@@ -158,7 +159,11 @@ func (s *StorjClient) Delete(key string, getters ...AttrGetter) error {
 func (s *StorjClient) Head(key string) (Object, error) {
 	// TODO implement me
 	// TODO: Hilal Head returns some information about the object or an error if not found
-	panic("implement me")
+	download, err := s.project.DownloadObject(ctx, s.bucket, key, &uplink.DownloadOptions{Length: -1, Offset: -1})
+	objinfo := download.Info()
+	// return &obj{key: key, size: }, err
+	// panic("implement me")
+	return &obj{key: key, size: 0, mtime: objinfo.System.Created, isDir: objinfo.IsPrefix, sc: ""}, err
 }
 
 // Storj prefix only will take a folder path so we need to split it into the folder path and if it has a file path
