@@ -37,7 +37,8 @@ import (
 )
 
 const maxPartCount int = math.MaxInt32 - 1 // Storj source code shows max part count is this
-const minPartSize int = 0                  // No notes on this
+const minPartSize int = 5 << 20            // Per source code + errors min is 5 MiB
+const maxPartSize int64 = 64000000         // 64MB per https://forum.storj.io/t/uplink-library-upload-process-and-recommended-file-fragmentation-size/10839/8
 
 type StorjClient struct {
 	bucket  string
@@ -53,13 +54,12 @@ func (s *StorjClient) Limits() Limits {
 		IsSupportMultipartUpload: true,
 		IsSupportUploadPartCopy:  false,
 		MinPartSize:              minPartSize,
-		MaxPartSize:              64000000, // 64MB per https://forum.storj.io/t/uplink-library-upload-process-and-recommended-file-fragmentation-size/10839/8
+		MaxPartSize:              maxPartSize,
 		MaxPartCount:             maxPartCount,
 	}
 }
 
 func (s *StorjClient) Create() error {
-	_, unrealErr := s.project.DeleteBucketWithObjects(ctx, s.bucket) // TODO: Hannah delete this
 	_, err := s.project.EnsureBucket(ctx, s.bucket)
 	if err != nil {
 		return fmt.Errorf("could not create bucket: %v %v", err, unrealErr)
@@ -285,6 +285,7 @@ func (s *StorjClient) AbortUpload(key string, uploadID string) {
 
 func (s *StorjClient) CompleteUpload(key string, uploadID string, parts []*Part) error {
 	// Just commit the upload itself since the parts were already committed
+	// Uplink internally ensures commit of each part
 	_, err := s.project.CommitUpload(ctx, s.bucket, key, uploadID, nil)
 
 	if err != nil {
@@ -297,7 +298,7 @@ func (s *StorjClient) CompleteUpload(key string, uploadID string, parts []*Part)
 func (s *StorjClient) ListUploads(marker string) ([]*PendingPart, string, error) {
 	parts := make([]*PendingPart, 0)
 
-	iterator := s.project.ListUploads(ctx, s.bucket, nil)
+	iterator := s.project.ListUploads(ctx, s.bucket, &uplink.ListUploadsOptions{System: true})
 
 	for iterator.Next() {
 		item := iterator.Item()
