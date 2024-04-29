@@ -62,7 +62,7 @@ func (s *StorjClient) Limits() Limits {
 func (s *StorjClient) Create() error {
 	_, err := s.project.EnsureBucket(ctx, s.bucket)
 	if err != nil {
-		return fmt.Errorf("could not create bucket: %v %v", err, unrealErr)
+		return fmt.Errorf("could not create bucket: %v %v", err)
 	}
 
 	return nil
